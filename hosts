@@ -1,0 +1,10 @@
+[vyos_hosts]
+router-central ansible_ssh_host=10.0.0.100
+router-site-a ansible_ssh_host=10.1.0.100
+router-site-b ansible_ssh_host=10.2.0.100
+
+[vyos_hosts:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=vyos
+ansible_network_os=vyos
+ansible_connection=network_cli

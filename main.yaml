@@ -1,0 +1,194 @@
+---
+
+- hosts: router-central
+  connection: network_cli
+  gather_facts: 'no'
+  tasks:
+    - name: Configure BASICS and NETWORK
+      vyos_config:
+        lines:
+          - set system host-name 'CENTRAL-ROUTER'
+          - delete interfaces ethernet eth0 address 'dhcp'
+          - set interfaces ethernet eth0 address '10.0.0.100/24'
+          - set protocols static route 0.0.0.0/0 next-hop 10.0.0.1
+          - set interfaces ethernet eth0 description 'INTERNET'
+          - set interfaces ethernet eth1 address '10.0.1.100/24'
+          - set protocols static route 10.1.0.0/24 next-hop 10.0.1.1
+          - set interfaces ethernet eth1 description 'SITE-A'
+          - set interfaces ethernet eth2 address '10.0.2.100/24'
+          - set protocols static route 10.2.0.0/24 next-hop 10.0.2.1
+          - set interfaces ethernet eth2 description 'SITE-B'
+
+    - name: Configure VPN
+      vyos_config:
+        lines:
+          - set interfaces vti vti1 address '169.254.0.1/30'
+          - set interfaces vti vti1 description 'VPN Site-A - Route-Based'
+          - set firewall options interface vti1 adjust-mss 1350
+          - set vpn ipsec ike-group swisscom dead-peer-detection action 'restart'
+          - set vpn ipsec ike-group swisscom dead-peer-detection interval '30'
+          - set vpn ipsec ike-group swisscom dead-peer-detection timeout '120'
+          - set vpn ipsec ike-group swisscom ikev2-reauth 'no'
+          - set vpn ipsec ike-group swisscom key-exchange 'ikev2'
+          - set vpn ipsec ike-group swisscom lifetime '3600'
+          - set vpn ipsec ike-group swisscom proposal 1 dh-group '19'
+          - set vpn ipsec ike-group swisscom proposal 1 encryption 'aes256'
+          - set vpn ipsec ike-group swisscom proposal 1 hash 'sha256'
+          - set vpn ipsec esp-group swisscom compression 'disable' 
+          - set vpn ipsec esp-group swisscom lifetime '28800' 
+          - set vpn ipsec esp-group swisscom mode 'tunnel' 
+          - set vpn ipsec esp-group swisscom pfs 'dh-group19' 
+          - set vpn ipsec esp-group swisscom proposal 1 encryption 'aes256' 
+          - set vpn ipsec esp-group swisscom proposal 1 hash 'sha256'
+          - set vpn ipsec ipsec-interfaces interface 'eth1'
+          - set vpn ipsec site-to-site peer 10.1.0.100 authentication mode 'pre-shared-secret'
+          - set vpn ipsec site-to-site peer 10.1.0.100 authentication pre-shared-secret '3mqBSixtMiDy4ngWUKt0uScGH9f2vPoy'
+          - set vpn ipsec site-to-site peer 10.1.0.100 connection-type 'initiate'
+          - set vpn ipsec site-to-site peer 10.1.0.100 description 'Site-A VPN'
+          - set vpn ipsec site-to-site peer 10.1.0.100 ike-group 'swisscom'
+          - set vpn ipsec site-to-site peer 10.1.0.100 ikev2-reauth 'inherit'
+          - set vpn ipsec site-to-site peer 10.1.0.100 local-address '10.0.1.100'
+          - set vpn ipsec site-to-site peer 10.1.0.100 vti bind 'vti1'
+          - set vpn ipsec site-to-site peer 10.1.0.100 vti esp-group 'swisscom'
+
+    - name: Configure VXLAN
+      vyos_config:
+        lines:
+          - set interfaces bridge br0 address '169.254.1.1/30'
+          - set interfaces vxlan vxlan0 bridge-group bridge 'br0'
+          - set interfaces vxlan vxlan0 vni '241'
+          - set interfaces vxlan vxlan0 remote 10.2.0.100
+
+    - name: Configure BGP
+      vyos_config:
+        lines:
+          - set protocols bgp 60000
+          - set protocols bgp 60000 neighbor 169.254.0.2 remote-as '60001'
+          - set protocols bgp 60000 neighbor 169.254.0.2 address-family ipv4-unicast soft-reconfiguration 'inbound'
+          - set protocols bgp 60000 neighbor 169.254.0.2 timers holdtime '30'
+          - set protocols bgp 60000 neighbor 169.254.0.2 timers keepalive '10'
+          - set protocols bgp 60000 neighbor 169.254.0.2 disable-connected-check
+          - set protocols bgp 60000 neighbor 169.254.1.2 remote-as '60002'
+          - set protocols bgp 60000 neighbor 169.254.1.2 address-family ipv4-unicast soft-reconfiguration 'inbound'
+          - set protocols bgp 60000 neighbor 169.254.1.2 timers holdtime '30'
+          - set protocols bgp 60000 neighbor 169.254.1.2 timers keepalive '10'
+          - set protocols bgp 60000 neighbor 169.254.1.2 disable-connected-check
+          - set protocols bgp 60000 address-family ipv4-unicast redistribute connected
+          - set protocols bgp 60000 address-family ipv4-unicast redistribute static
+
+    - name: Configure NAT
+      vyos_config:
+        lines:
+          - set nat source rule 11 outbound-interface 'eth0'
+          - set nat source rule 11 source address '10.1.1.0/24'
+          - set nat source rule 11 translation address 'masquerade'
+          - set nat source rule 21 outbound-interface 'eth0'
+          - set nat source rule 21 source address '10.2.1.0/24'
+          - set nat source rule 21 translation address 'masquerade'
+
+
+- hosts: router-site-a
+  connection: network_cli
+  gather_facts: 'no'
+  tasks:
+    - name: Configure BASICS and NETWORK
+      vyos_config:
+        lines:
+          - set system host-name 'SITE-A'
+          - delete interfaces ethernet eth0 address 'dhcp'
+          - set interfaces ethernet eth0 address '10.1.0.100/24'
+          - set protocols static route 10.0.0.200/32 next-hop 10.1.0.1
+          - set protocols static route 10.0.1.0/24 next-hop 10.1.0.1
+          - set interfaces ethernet eth0 description 'LINK'
+          - set interfaces ethernet eth1 address '10.1.1.100/24'
+          - set interfaces ethernet eth1 description 'SUBNET-A1'
+          - set interfaces ethernet eth2 address '10.1.2.100/24'
+          - set interfaces ethernet eth2 description 'SUBNET-A2'
+    - name: Remove default route
+      vyos_command:
+        commands:
+          - sudo route del default
+
+    - name: Configure VPN
+      vyos_config:
+        lines:
+          - set interfaces vti vti1 address '169.254.0.2/30'
+          - set interfaces vti vti1 description 'VPN CentralRouter - Route-Based'
+          - set firewall options interface vti1 adjust-mss 1350
+          - set vpn ipsec ike-group swisscom dead-peer-detection action 'restart'
+          - set vpn ipsec ike-group swisscom dead-peer-detection interval '30'
+          - set vpn ipsec ike-group swisscom dead-peer-detection timeout '120'
+          - set vpn ipsec ike-group swisscom ikev2-reauth 'no'
+          - set vpn ipsec ike-group swisscom key-exchange 'ikev2'
+          - set vpn ipsec ike-group swisscom lifetime '3600'
+          - set vpn ipsec ike-group swisscom proposal 1 dh-group '19'
+          - set vpn ipsec ike-group swisscom proposal 1 encryption 'aes256'
+          - set vpn ipsec ike-group swisscom proposal 1 hash 'sha256'
+          - set vpn ipsec esp-group swisscom compression 'disable' 
+          - set vpn ipsec esp-group swisscom lifetime '28800' 
+          - set vpn ipsec esp-group swisscom mode 'tunnel' 
+          - set vpn ipsec esp-group swisscom pfs 'dh-group19' 
+          - set vpn ipsec esp-group swisscom proposal 1 encryption 'aes256' 
+          - set vpn ipsec esp-group swisscom proposal 1 hash 'sha256'
+          - set vpn ipsec ipsec-interfaces interface 'eth0'
+          - set vpn ipsec site-to-site peer 10.0.1.100 authentication mode 'pre-shared-secret'
+          - set vpn ipsec site-to-site peer 10.0.1.100 authentication pre-shared-secret '3mqBSixtMiDy4ngWUKt0uScGH9f2vPoy'
+          - set vpn ipsec site-to-site peer 10.0.1.100 connection-type 'initiate'
+          - set vpn ipsec site-to-site peer 10.0.1.100 description 'Router-Central VPN'
+          - set vpn ipsec site-to-site peer 10.0.1.100 ike-group 'swisscom'
+          - set vpn ipsec site-to-site peer 10.0.1.100 ikev2-reauth 'inherit'
+          - set vpn ipsec site-to-site peer 10.0.1.100 local-address '10.1.0.100'
+          - set vpn ipsec site-to-site peer 10.0.1.100 vti bind 'vti1'
+          - set vpn ipsec site-to-site peer 10.0.1.100 vti esp-group 'swisscom'
+
+    - name: Configure BGP
+      vyos_config:
+        lines:
+          - set protocols bgp 60001
+          - set protocols bgp 60001 neighbor 169.254.0.1 remote-as '60000'
+          - set protocols bgp 60001 neighbor 169.254.0.1 address-family ipv4-unicast soft-reconfiguration 'inbound'
+          - set protocols bgp 60001 neighbor 169.254.0.1 timers holdtime '30'
+          - set protocols bgp 60001 neighbor 169.254.0.1 timers keepalive '10'
+          - set protocols bgp 60001 neighbor 169.254.0.1 disable-connected-check
+          - set protocols bgp 60001 address-family ipv4-unicast redistribute connected
+
+- hosts: router-site-b
+  connection: network_cli
+  gather_facts: 'no'
+  tasks:
+    - name: Configure BASICS and NETWORK
+      vyos_config:
+        lines:
+          - set system host-name 'SITE-B-ROUTER'
+          - delete interfaces ethernet eth0 address 'dhcp'
+          - set interfaces ethernet eth0 address '10.2.0.100/24'
+          - set protocols static route 10.0.0.200/32 next-hop 10.2.0.1
+          - set protocols static route 10.0.2.0/24 next-hop 10.2.0.1
+          - set interfaces ethernet eth0 description 'LINK'
+          - set interfaces ethernet eth1 address '10.2.1.100/24'
+          - set interfaces ethernet eth1 description 'SUBNET-B1'
+          - set interfaces ethernet eth2 address '10.2.2.100/24'
+          - set interfaces ethernet eth2 description 'SUBNET-B2'
+    - name: Remove default route
+      vyos_command:
+        commands:
+          - sudo route del default
+
+    - name: Configure VXLAN
+      vyos_config:
+        lines:
+          - set interfaces bridge br0 address '169.254.1.2/30'
+          - set interfaces vxlan vxlan0 bridge-group bridge 'br0'
+          - set interfaces vxlan vxlan0 vni '241'
+          - set interfaces vxlan vxlan0 remote 10.0.2.100
+
+    - name: Configure BGP
+      vyos_config:
+        lines:
+          - set protocols bgp 60002
+          - set protocols bgp 60002 neighbor 169.254.1.1 remote-as '60000'
+          - set protocols bgp 60002 neighbor 169.254.1.1 address-family ipv4-unicast soft-reconfiguration 'inbound'
+          - set protocols bgp 60002 neighbor 169.254.1.1 timers holdtime '30'
+          - set protocols bgp 60002 neighbor 169.254.1.1 timers keepalive '10'
+          - set protocols bgp 60002 neighbor 169.254.1.1 disable-connected-check
+          - set protocols bgp 60002 address-family ipv4-unicast redistribute connected
